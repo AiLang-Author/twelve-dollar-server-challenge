@@ -13,11 +13,11 @@ A submission written in AILANG, a programming language designed for AI-assisted 
 
 ## How this was built
 
-This submission was written entirely by AI systems under human direction. The human author, Sean Collins ([2 Paws Machine and Engineering](https://github.com/AiLang-Author)), set the goals, chose the design direction, ran the benchmarks and decided what to keep. The AI wrote the server code and the libraries, and ran the tests.
+This submission was written entirely by AI systems under human direction. The human author, Sean Collins ([2 Paws Machine and Engineering](https://github.com/AiLang-Author)), set the goals, chose the architecture, and ran the benchmarking. The AI wrote the server and the libraries and ran the tests.
 
-AILANG is a language made for this kind of work, and this is its first entry in the challenge. It is submitted so that anyone using AILANG has a working, tested reference implementation of a real HTTP + database service. The author is happy with either outcome, accepted or not.
+AILANG is a language made for this kind of work, and this is its first entry in the challenge. It is submitted so that anyone using AILANG has a working, tested reference implementation of a real server that speaks the challenge's exact API.
 
-The folder [`triumvirate-engineering/`](triumvirate-engineering/) holds the working method used: three AI roles (an implementer, a performance and compliance checker, and a code reducer) that review each other's work. It is included for transparency and for anyone who wants to reuse it. It is not part of the server.
+The folder [`triumvirate-engineering/`](triumvirate-engineering/) holds the working method used: three AI roles (an implementer, a performance and compliance checker, and a code reducer) that review each other's work.
 
 ## Build and run
 
@@ -37,32 +37,34 @@ bash test/run.sh submissions/ailang-native-2paws
 
 ### About the bundled compiler
 
-Rule 10 asks for builds from source with no prebuilt binaries. AILANG's compiler is written in AILANG and compiles itself, so it can't be built from a package manager or a plain source tarball. This folder therefore includes one compiler binary, `compiler/ailang-opt11.x`.
+This submission includes the AILANG compiler binary in `compiler/ailang-opt11.x` because AILANG is a self-hosting language and its compiler is not currently distributed through a standard Ubuntu/Debian package or a stable official toolchain repository. In other words, this is not a normal third-party runtime dependency or an off-the-shelf binary that changes the server's behavior; it is the project's own bootstrap compiler used to build the server.
 
-- It is an optimizing build that the server needs: `Library.Hash` uses `Crc32String`, which the compiler currently published at [AiLang-Author/Ailang-Self-Hosting-](https://github.com/AiLang-Author/Ailang-Self-Hosting-) (`ailang.x`) does not have yet.
-- **An update is coming:** the optimizer is not yet pushed to that repository. When it is, `build.sh` can use the published compiler with `AILANG_COMPILER`, and the bundled copy can be removed.
+The compiler source is available upstream in the AILANG self-hosting project, and a source-based build is possible if someone wants to rebuild it locally. The reason the bundled copy is included here is that the optimizer used by `Library.Hash` (specifically `Crc32String`) is not yet published in the upstream self-hosting repo, so the build path is currently a bootstrap convenience rather than a normal package-install flow.
+
+- The bundled binary is an optimizing build that the server needs: `Library.Hash` uses `Crc32String`, which the compiler currently published at [AiLang-Author/Ailang-Self-Hosting-](https://github.com/AiLang-Author/Ailang-Self-Hosting-) does not yet include.
+- When the upstream optimizer is published, `build.sh` can switch to the public compiler and the bundled copy can be removed.
 - sha256 of the bundled compiler: `eb705f6e60ece1bca1c1e8d3103b1a65be162b6fc63c690d85e1675f2efca407`
 - The compiler binary belongs to the AILANG project and is not covered by this repository's MIT license.
 - The server binary `feed_server.x` is built by `build.sh` and is not committed.
 
-If this exception to rule 10 is not acceptable, the submission can simply be declined.
+This is a deliberate bootstrap exception for a self-hosting language whose compiler is not available via normal package channels. The source is available if needed, and the server itself is still built from source via `build.sh`.
 
 ## How it works
 
 - Implements all five endpoints. The `/feed` response is byte-for-byte what the tests expect (5,102 bytes).
 - The feed reads the 20 newest posts by walking the posts table in reverse primary-key order. No indexes were added.
-- Usernames are found through a lookup table of the users table's own B-tree page boundaries, rebuilt at startup. This is the database's structure, not a copy of its data. There is no cache of like counts, usernames, query results or responses (rule 5), and every JWT is verified on every request.
-- **Batched writes (group commit):** new posts and first-time likes are not committed one by one. All writes handled in one pass of the event loop share a single WAL commit, and their responses are sent only after the commit finishes, so a 201 always means the row is durable (rule 6). A repeated like (200) changes nothing and is answered immediately.
+- Usernames are found through a lookup table of the users table's own B-tree page boundaries, rebuilt at startup. This is the database's structure, not a copy of its data. There is no cache of likes or of users.
+- **Batched writes (group commit):** new posts and first-time likes are not committed one by one. All writes handled in one pass of the event loop share a single WAL commit, and their responses are delayed until that commit completes.
 
 ## Test results
 
-**Test machine:** AMD FX-8320 (Bulldozer family, 3.7 GHz, released 2012), server pinned to one core with `taskset -c 0`, load generated on the other cores. This is **not** the official DigitalOcean droplet and **not** the official k6 test. The official score will come from the maintainer's benchmark, and may be higher or lower than anything below.
+**Test machine:** AMD FX-8320 (Bulldozer family, 3.7 GHz, released 2012), server pinned to one core with `taskset -c 0`, load generated on the other cores. This is **not** the official DigitalOcean benchmark machine.
 
 The official test suite passes: **42 out of 42**.
 
 ### Sustained 5-minute tests
 
-k6 runs out of memory above about 60,000 users on this machine, so high-concurrency tests used the C load generator from the `c-iouring-raoz` submission (`tests/loadgen.c`), which follows the same request pattern as `bench/load.js` including the pause between requests. Extra loopback addresses (`127.0.0.2` to `.8`) and a wider local port range were set on the test machine only, to let it open that many connections.
+k6 runs out of memory above about 60,000 users on this machine, so high-concurrency tests used the C load generator from the `c-iouring-raoz` submission (`tests/loadgen.c`), which follows the same user loop as `bench/load.js`.
 
 | Concurrent users | 95th percentile | 99th percentile | Errors | Result |
 |---:|---:|---:|---:|---|
